@@ -9,9 +9,10 @@ from PyPDF2 import PdfReader
 from langchain_text_splitters import CharacterTextSplitter
 from pinecone import Pinecone, ServerlessSpec
 from dotenv import load_dotenv
-from langchain_openai import OpenAIEmbeddings
-from langchain_openai import ChatOpenAI
+
 from langchain.prompts import PromptTemplate
+from langchain_groq import ChatGroq
+from sentence_transformers import SentenceTransformer
 load_dotenv()
 
 
@@ -23,23 +24,29 @@ pdf_reader=PdfReader("incorrect_facts.pdf")
 for page in pdf_reader.pages:
     text+=page.extract_text() + "\n"
 
-
 #Step2: Chunk the Extracted Text
 
-text_splitter = CharacterTextSplitter(separator="\n", chunk_size=500, chunk_overlap=50, length_function=len)
+text_splitter = CharacterTextSplitter(
+    separator="\n",
+    chunk_size=500,
+    chunk_overlap=50,
+    length_function=len
+)
 chunks = text_splitter.split_text(text)
 
+#printing the chunks to view
+# for i in range(len(chunks)):
+#     print(f"Chunk {i+1}: {chunks[i]}")
 
 #Initialize Vector Database
-
 pc = Pinecone()
 
 index_name = "rag"
 index = pc.Index(index_name)
-
+#creating index and then commenting once the index is created
 # pc.create_index(
 #     name=index_name,
-#     dimension=1536, # Replace with your model dimensions
+#     dimension=384, # Replace with your model dimensions
 #     metric="cosine", # Replace with your model metric
 #     spec=ServerlessSpec(
 #         cloud="aws",
@@ -47,33 +54,31 @@ index = pc.Index(index_name)
 #     ) 
 # )
 
-#Select Embedding Model
+#Select embedding model
 
-embedding=OpenAIEmbeddings()
+embedding_model = SentenceTransformer("BAAI/bge-small-en")
 
-#Step 3: Convert chunks to Embedding and Store in Vector Database
+#Embed and Store in Vector DB and comment once the database is crated in pinecone
+#print(type(chunks))
 # for i, chunk in enumerate(chunks):
-#     chunk_embedding=embedding.embed_query(chunk)
-#     index.upsert([(str(i+1),chunk_embedding,{"chunk":chunk,})])
+#     chunk_embedding=embedding_model.encode(chunk, normalize_embeddings=True)
+#     index.upsert([(str(i+1),chunk_embedding.tolist(),{"chunk":chunk})])
 
-#User Query
+#User query
+llm=ChatGroq(temperature=0,model="llama3-70b-8192")
 
-llm=ChatOpenAI(model="gpt-4",temperature=0)
+query = "How do Birds Migrate"
+question_embedding = embedding_model.encode(query, normalize_embeddings=True)  # Fix applied
 
-
-query="How do Birds Migrate"
-question_embedding=embedding.embed_query(query)
-
-#Retrieve Topk Results
-
-result=index.query(vector=question_embedding,top_k=3,include_metadata=True)
+#Retrive top K results
+result=index.query(vector=question_embedding.tolist(),top_k=3,include_metadata=True)
 
 
 augmented_text="\n\n".join([match.metadata["chunk"] for match in result.matches])
+#print(augmented_text)
 
 
-
-#Creating the CHatbot
+#Creating chatbot
 
 prompt = PromptTemplate(
         input_variables=["context", "question"],
